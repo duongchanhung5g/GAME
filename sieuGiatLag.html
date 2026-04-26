@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>LEVEL 11 - DODGE BOMB</title>
+<style>
+body { margin:0; overflow:hidden; background:black; }
+canvas { display:block; margin:auto; }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const WIDTH = 1000;
+const HEIGHT = 600;
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
+
+// ===== LOAD =====
+let heart = new Image(); heart.src="heart.png";
+let glitch_img = new Image(); glitch_img.src="glitch.jpg";
+let jumpscare_img = new Image(); jumpscare_img.src="download.jpg";
+
+// ===== SOUND =====
+let blaster_sound = new Audio("blastersound.mp3");
+blaster_sound.volume = 0.3;
+
+let scream_sound = new Audio("scream.mp3");
+
+// ===== COLORS =====
+const WHITE="white", BLACK="black", CYAN="cyan", RED="red", YELLOW="yellow";
+
+// ===== STATE =====
+let state="tutorial";
+let paused=false;
+let played_scream=false;
+
+// ===== GAME VAR =====
+let heart_x, heart_y, lives;
+let bombs, heals, blasters;
+let mode, mode_timer, game_timer;
+let end_phase, end_timer;
+
+let final_30s, glitch_timer, spawned_wave;
+let red_flash_timer;
+
+// ===== RESET =====
+function reset_game(){
+    heart_x = WIDTH/2;
+    heart_y = HEIGHT/2;
+    lives = 20;
+
+    bombs=[];
+    heals=[];
+    blasters=[];
+
+    mode="dodge";
+    mode_timer=0;
+    game_timer=0;
+
+    end_phase=false;
+    end_timer=0;
+
+    final_30s=false;
+    glitch_timer=0;
+    spawned_wave=false;
+
+    red_flash_timer=0;
+
+    played_scream=false;
+    paused=false;
+}
+
+// ===== INPUT =====
+let keys={};
+
+document.addEventListener("keydown",e=>{
+    keys[e.key.toLowerCase()]=true;
+
+    if(state==="tutorial" && e.key==="Enter"){
+        reset_game();
+        state="play";
+    }
+
+    if(e.key==="r"){
+        reset_game();
+        state="tutorial";
+    }
+
+    if(e.key==="Escape" && state==="play"){
+        paused=true;
+    }
+
+    if(e.key==="c"){
+        paused=false;
+    }
+});
+
+document.addEventListener("keyup",e=>{
+    keys[e.key.toLowerCase()]=false;
+});
+
+// ===== LOOP =====
+function loop(){
+    requestAnimationFrame(loop);
+
+    // ===== PAUSE =====
+    if(paused && state==="play"){
+        ctx.fillStyle="#111";
+        ctx.fillRect(0,0,WIDTH,HEIGHT);
+        ctx.fillStyle="white";
+        ctx.font="60px Arial";
+        ctx.fillText("PAUSED", WIDTH/2-150, HEIGHT/2);
+        ctx.font="20px Arial";
+        ctx.fillText("Press C", WIDTH/2-50, HEIGHT/2+40);
+        return;
+    }
+
+    // ===== TUTORIAL =====
+    if(state==="tutorial"){
+        ctx.fillStyle="#f0dcff";
+        ctx.fillRect(0,0,WIDTH,HEIGHT);
+
+        ctx.fillStyle="red";
+        ctx.font="60px Arial";
+        ctx.fillText("HELL", WIDTH/2-80,100);
+
+        ctx.fillStyle="black";
+        ctx.font="22px Arial";
+        let lines=[
+            "WASD: Move",
+            "Dodge bombs & blaster",
+            "Survive 4m20s",
+            "Every 30s heal phase",
+            "ESC pause | C continue",
+            "ENTER to start"
+        ];
+        lines.forEach((l,i)=>ctx.fillText(l,100,200+i*40));
+        return;
+    }
+
+    // ===== GAME =====
+    if(state==="play"){
+
+        // MOVE
+        if(keys["a"]) heart_x-=5;
+        if(keys["d"]) heart_x+=5;
+        if(keys["w"]) heart_y-=5;
+        if(keys["s"]) heart_y+=5;
+
+        heart_x=Math.max(10,Math.min(WIDTH-10,heart_x));
+        heart_y=Math.max(10,Math.min(HEIGHT-10,heart_y));
+
+        // TIMER
+        game_timer++;
+        mode_timer++;
+
+        // LOW HP EFFECT
+        if(lives<=5) red_flash_timer++;
+        else red_flash_timer=0;
+
+        // FINAL 30s
+        if(!final_30s && game_timer>230*70){
+            final_30s=true;
+            glitch_timer=0;
+            spawned_wave=false;
+            heart_x=WIDTH/2;
+            heart_y=HEIGHT/2;
+        }
+
+        if(final_30s){
+            glitch_timer++;
+
+            if(glitch_timer<70 && !spawned_wave){
+                for(let i=0;i<60;i++){
+                    let x=Math.random()*WIDTH;
+                    let y=Math.random()*HEIGHT;
+
+                    let dx=WIDTH/2-x;
+                    let dy=HEIGHT/2-y;
+                    let dist=Math.hypot(dx,dy)||1;
+
+                    dx/=dist;
+                    dy/=dist;
+
+                    blasters.push({x,y,dx,dy,timer:0});
+                    blaster_sound.play();
+                }
+                spawned_wave=true;
+            }
+
+            if(glitch_timer>175){
+                blasters.forEach(b=>{
+                    if(b.timer<30) b.timer=30;
+                });
+            }
+        }
+
+        // MODE SWITCH
+        if(mode==="dodge" && mode_timer>30*70){
+            mode="heal";
+            mode_timer=0;
+        }else if(mode==="heal" && mode_timer>10*70){
+            mode="dodge";
+            mode_timer=0;
+        }
+
+        // SPAWN
+        if(!end_phase){
+            if(mode==="dodge"){
+                let bomb_rate = final_30s ? 0.4 : 0.25;
+                if(Math.random()<bomb_rate){
+                    bombs.push([Math.random()*WIDTH,-10,6+Math.random()*4]);
+                }
+
+                if(Math.random()<0.02){
+                    let x=Math.random()*WIDTH;
+                    let y=-50;
+
+                    let dx=heart_x-x;
+                    let dy=heart_y-y;
+                    let dist=Math.hypot(dx,dy)||1;
+
+                    dx/=dist;
+                    dy/=dist;
+
+                    blasters.push({x,y,dx,dy,timer:0});
+                    blaster_sound.play();
+                }
+            }else{
+                if(Math.random()<0.12){
+                    heals.push([Math.random()*WIDTH,-10]);
+                }
+            }
+        }
+
+        // UPDATE
+        let hit=false;
+
+        bombs=bombs.filter(b=>{
+            b[1]+=b[2];
+
+            if(Math.abs(b[0]-heart_x)<15 && Math.abs(b[1]-heart_y)<15){
+                if(!end_phase) lives--;
+                hit=true;
+                return false;
+            }
+            return b[1]<=HEIGHT;
+        });
+
+        heals=heals.filter(h=>{
+            h[1]+=4;
+
+            if(Math.abs(h[0]-heart_x)<15 && Math.abs(h[1]-heart_y)<15){
+                lives++;
+                return false;
+            }
+            return h[1]<=HEIGHT;
+        });
+
+        blasters=blasters.filter(b=>{
+            b.timer++;
+
+            if(b.timer<30) return true;
+
+            if(b.timer<60){
+                let px=heart_x-b.x;
+                let py=heart_y-b.y;
+                let proj=px*b.dx+py*b.dy;
+
+                if(proj>0){
+                    let cx=b.x+b.dx*proj;
+                    let cy=b.y+b.dy*proj;
+
+                    if(Math.hypot(heart_x-cx,heart_y-cy)<12){
+                        if(!end_phase) lives-=0.1;
+                    }
+                }
+                return true;
+            }
+            return false;
+        });
+
+        // LOSE
+        if(lives<=0.9 && !end_phase){
+            state="lose";
+        }
+
+        // END PHASE
+        if(!end_phase && game_timer>257*70){
+            end_phase=true;
+            end_timer=0;
+            lives=Math.max(lives,1);
+        }
+
+        if(end_phase){
+            end_timer++;
+
+            for(let i=0;i<15;i++){
+                let x=Math.random()*WIDTH;
+                let y=Math.random()*HEIGHT;
+
+                if(Math.abs(x-heart_x)<60 && Math.abs(y-heart_y)<60) continue;
+
+                bombs.push([x,y,6+Math.random()*6]);
+            }
+
+            if(end_timer>3*70){
+                state="win";
+            }
+        }
+
+        // ===== DRAW =====
+        if(lives<=5){
+            ctx.fillStyle=`rgb(${Math.random()*100+40},0,0)`;
+            ctx.fillRect(0,0,WIDTH,HEIGHT);
+        }else{
+            ctx.fillStyle="black";
+            ctx.fillRect(0,0,WIDTH,HEIGHT);
+        }
+
+        // glitch
+        if(final_30s && glitch_timer<70){
+            ctx.drawImage(glitch_img,0,0,WIDTH,HEIGHT);
+        }
+
+        // bombs
+        bombs.forEach(b=>{
+            ctx.beginPath();
+            ctx.arc(b[0],b[1],6,0,Math.PI*2);
+            ctx.fillStyle="white";
+            ctx.fill();
+        });
+
+        // heals
+        heals.forEach(h=>{
+            ctx.beginPath();
+            ctx.arc(h[0],h[1],6,0,Math.PI*2);
+            ctx.fillStyle="cyan";
+            ctx.fill();
+        });
+
+        // blasters
+        blasters.forEach(b=>{
+            let end_x=b.x+b.dx*1200;
+            let end_y=b.y+b.dy*1200;
+
+            if(b.timer<30){
+                ctx.strokeStyle="yellow";
+                ctx.lineWidth=2;
+            }else{
+                ctx.strokeStyle="cyan";
+                ctx.lineWidth=6;
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(b.x,b.y);
+            ctx.lineTo(end_x,end_y);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(b.x,b.y,10,0,Math.PI*2);
+            ctx.fillStyle="white";
+            ctx.fill();
+        });
+
+        // heart
+        ctx.drawImage(heart,heart_x-15,heart_y-15,30,30);
+
+        // UI
+        ctx.fillStyle="white";
+        ctx.font="20px Arial";
+        ctx.fillText("Lives: "+Math.floor(lives),10,20);
+        ctx.fillText("Time: "+Math.floor(game_timer/70),300,20);
+        ctx.fillText("Mode: "+mode,600,20);
+    }
+
+    // LOSE
+    if(state==="lose"){
+        ctx.drawImage(jumpscare_img,0,0,WIDTH,HEIGHT);
+        if(!played_scream){
+            scream_sound.play();
+            played_scream=true;
+        }
+    }
+
+    // WIN
+    if(state==="win"){
+        ctx.fillStyle="black";
+        ctx.fillRect(0,0,WIDTH,HEIGHT);
+        ctx.fillStyle="red";
+        ctx.font="60px Arial";
+        ctx.fillText("WIN", WIDTH/2-80, HEIGHT/2);
+    }
+}
+
+reset_game();
+loop();
+</script>
+
+</body>
+</html>
